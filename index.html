@@ -251,6 +251,7 @@
               <th style="cursor:pointer" onclick="sortTable(7)">Good%LCP</th>
               <th style="cursor:pointer" onclick="sortTable(8)">LH分</th>
               <th>问题</th>
+              <th style="min-width:300px;">💡 优化建议</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -422,6 +423,66 @@ new Chart(document.getElementById('scatterChart'), {
 
 // Table
 const tbody = document.querySelector('#detailTable tbody');
+
+function getAdvice(d) {
+  const tips = [];
+  
+  // LCP advice
+  if (d.lcp > 6000) {
+    tips.push('🔴 <b>LCP致命</b>：首屏关键资源严重阻塞');
+    if (d.fcp > 4000) tips.push('→ 优化服务器响应时间(TTFB)，检查是否需要CDN加速');
+    if (d.goodLcp < 40) tips.push('→ 压缩/预加载首屏大图，使用 <code>&lt;link rel=preload&gt;</code>');
+    tips.push('→ 延迟加载非首屏资源（lazyload），减少JS/CSS阻塞');
+  } else if (d.lcp > 4000) {
+    tips.push('🟠 <b>LCP较差</b>：首屏渲染偏慢');
+    if (d.fcp > 3000) tips.push('→ 优化FCP：内联关键CSS，减少渲染阻塞资源');
+    tips.push('→ 检查图片格式（建议WebP/AVIF）和尺寸是否合理');
+  } else if (d.lcp > 2500) {
+    tips.push('🟡 <b>LCP需改进</b>：接近达标');
+    tips.push('→ 进一步优化首屏图片：使用 <code>&lt;img loading=eager fetchpriority=high&gt;</code>');
+  }
+  
+  // INP advice
+  if (d.inp > 500) {
+    tips.push('🔴 <b>INP致命</b>：用户交互几乎不可用');
+    tips.push('→ 拆分长任务（Long Tasks），使用 <code>requestIdleCallback</code> 或 <code>setTimeout</code> 分片');
+    tips.push('→ 减少主线程JS执行，检查是否有同步阻塞（大计算/频繁DOM操作）');
+    tips.push('→ 使用 Web Workers 处理重型计算');
+  } else if (d.inp > 200) {
+    tips.push('🟠 <b>INP偏高</b>：交互响应有延迟');
+    tips.push('→ 优化事件处理：使用 <code>passive: true</code> 监听器');
+    tips.push('→ 减少 <code>requestAnimationFrame</code> 中的DOM操作');
+  }
+  
+  // CLS advice
+  if (d.cls > 25) {
+    tips.push('🔴 <b>CLS致命</b>：页面剧烈抖动');
+    tips.push('→ 为所有图片/视频/广告位设置明确的 <code>width/height</code> 或 <code>aspect-ratio</code>');
+    tips.push('→ 动态插入内容（广告/弹窗）使用预留占位空间');
+    tips.push('→ 避免在现有内容上方插入新元素');
+  } else if (d.cls > 10) {
+    tips.push('🟠 <b>CLS偏高</b>：页面有明显位移');
+    tips.push('→ 检查字体加载（使用 <code>font-display: optional</code> 或预加载字体）');
+    tips.push('→ 确保动态内容有固定容器尺寸');
+  }
+  
+  // TTFB advice
+  if (d.ttfb > 1000) {
+    tips.push('🟠 <b>TTFB过高</b>：服务器响应慢');
+    tips.push('→ 启用CDN，减少地理延迟');
+    tips.push('→ 检查服务端渲染性能或使用边缘缓存');
+  }
+  
+  // Good% specific
+  if (d.goodLcp !== null && d.goodLcp < 30) {
+    tips.push('⚠️ 仅 ' + d.goodLcp + '% 的用户LCP达标，需优先处理');
+  }
+  
+  if (tips.length === 0) tips.push('✅ 各项指标达标，保持现状');
+  
+  return tips.join('<br>');
+}
+
 [...DATA.cpData].filter(d=>d.lcp).sort((a,b)=>a.lcp-b.lcp).forEach(d => {
   const issues = [];
   if(d.lcp>4000) issues.push('LCP');
@@ -439,6 +500,7 @@ const tbody = document.querySelector('#detailTable tbody');
     <td>${d.goodLcp!=null?`<div style="display:flex;align-items:center;gap:4px;"><div style="width:60px;height:8px;background:#F0F0F0;border-radius:4px;overflow:hidden;"><div style="width:${d.goodLcp}%;height:100%;background:${d.goodLcp>=70?COLORS.good:d.goodLcp>=50?COLORS.warn:COLORS.bad};border-radius:4px;"></div></div>${d.goodLcp}%</div>`:'-'}</td>
     <td>${d.perf!=null?Math.round(d.perf/100):'-'}</td>
     <td style="font-size:12px;color:var(--red)">${issues.join(', ')||'✅'}</td>
+    <td style="font-size:12px;color:var(--text2);line-height:1.6;">${getAdvice(d)}</td>
   `;
   tbody.appendChild(tr);
 });
