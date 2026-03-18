@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CP 渠道性能分析仪表盘</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #F0F2F5; --card: #FFF; --pink: #FF6B9D; --green: #34A853; --orange: #FBBC04; --red: #EA4335;
+    --text: #1a1a2e; --text2: #666; --border: #E8E8E8; --blue: #4285F4; --purple: #9C27B0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: white; padding: 32px 0; }
+  .header .container { display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 28px; font-weight: 700; }
+  .header .subtitle { color: rgba(255,255,255,0.7); font-size: 14px; margin-top: 4px; }
+  .header .badge { background: rgba(255,255,255,0.15); padding: 6px 14px; border-radius: 20px; font-size: 13px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 0 24px; }
+  
+  /* KPI Cards */
+  .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-top: -24px; position: relative; z-index: 1; }
+  .kpi-card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); text-align: center; }
+  .kpi-card .value { font-size: 32px; font-weight: 800; line-height: 1.1; }
+  .kpi-card .label { font-size: 12px; color: var(--text2); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-card .sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .kpi-good .value { color: var(--green); }
+  .kpi-warn .value { color: var(--orange); }
+  .kpi-bad .value { color: var(--red); }
+  .kpi-info .value { color: var(--blue); }
+  .kpi-purple .value { color: var(--purple); }
+  
+  /* Sections */
+  .section { margin-top: 28px; }
+  .section-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .section-title span { font-size: 20px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  
+  .card { background: var(--card); border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+  .card canvas { max-height: 320px; }
+  
+  /* Alert Cards */
+  .alert-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .alert-card { border-radius: 12px; padding: 20px; position: relative; overflow: hidden; }
+  .alert-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+  .alert-red { background: #FFF5F5; border: 1px solid #FFE0E0; }
+  .alert-red::before { background: var(--red); }
+  .alert-orange { background: #FFFAF0; border: 1px solid #FFE8CC; }
+  .alert-orange::before { background: var(--orange); }
+  .alert-blue { background: #F0F7FF; border: 1px solid #D0E4FF; }
+  .alert-blue::before { background: var(--blue); }
+  .alert-card .alert-cp { font-size: 18px; font-weight: 700; }
+  .alert-card .alert-issue { font-size: 13px; color: var(--text2); margin-top: 4px; }
+  .alert-card .alert-value { font-size: 28px; font-weight: 800; margin-top: 8px; }
+  .alert-card .alert-bar { height: 6px; border-radius: 3px; background: #E8E8E8; margin-top: 12px; overflow: hidden; }
+  .alert-card .alert-bar-fill { height: 100%; border-radius: 3px; }
+  
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 8px; border-bottom: 2px solid var(--border); font-weight: 600; color: var(--text2); white-space: nowrap; position: sticky; top: 0; background: var(--card); }
+  td { padding: 10px 8px; border-bottom: 1px solid #F5F5F5; }
+  tr:hover td { background: #FAFBFF; }
+  .badge-tier { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .tier-green { background: #E6F4EA; color: #1E8E3E; }
+  .tier-orange { background: #FEF7E0; color: #E37400; }
+  .tier-red { background: #FCE8E6; color: #D93025; }
+  .tier-dead { background: #F3E5F5; color: #7B1FA2; }
+  .tier-na { background: #F0F0F0; color: #999; }
+  .bar-cell { position: relative; }
+  .bar-inline { height: 20px; border-radius: 4px; min-width: 2px; transition: width 0.5s; }
+  .metric-pill { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; margin: 1px; }
+  .pill-good { background: #E6F4EA; color: #1E8E3E; }
+  .pill-warn { background: #FEF7E0; color: #E37400; }
+  .pill-bad { background: #FCE8E6; color: #D93025; }
+  
+  /* Cross domain */
+  .cross-compare { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .cross-item { border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .cross-item .cp-name { font-weight: 700; font-size: 16px; margin-bottom: 12px; }
+  .cross-bar { display: flex; align-items: center; margin: 8px 0; }
+  .cross-bar .domain { width: 200px; font-size: 12px; color: var(--text2); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+  .cross-bar .bar-track { flex: 1; height: 24px; background: #F5F5F5; border-radius: 4px; position: relative; overflow: hidden; }
+  .cross-bar .bar-value { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: 700; }
+  
+  /* Platform compare */
+  .platform-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .platform-card { border-radius: 12px; padding: 24px; text-align: center; }
+  .platform-card.myf { background: linear-gradient(135deg, #E3F2FD, #BBDEFB); }
+  .platform-card.lyg { background: linear-gradient(135deg, #FFF3E0, #FFE0B2); }
+  .platform-card .platform-name { font-size: 18px; font-weight: 700; }
+  .platform-card .platform-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  .platform-card .pm { }
+  .platform-card .pm .val { font-size: 24px; font-weight: 800; }
+  .platform-card .pm .lbl { font-size: 11px; color: var(--text2); }
+  
+  @media (max-width: 1200px) { .kpi-row { grid-template-columns: repeat(3, 1fr); } .grid-2, .grid-3, .alert-grid, .cross-compare { grid-template-columns: 1fr; } }
+  @media (max-width: 768px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="container">
+    <div>
+      <h1>📊 CP 渠道性能分析仪表盘</h1>
+      <div class="subtitle">基于 CrUX 真实用户数据 · 477 个 URL · 51 个渠道 · 分析时间 2026-03-18</div>
+    </div>
+    <div class="badge">🔄 实时数据</div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- KPI Cards -->
+  <div class="kpi-row">
+    <div class="kpi-card kpi-info">
+      <div class="value">477</div>
+      <div class="label">分析 URL 总数</div>
+      <div class="sub">有 CrUX 数据: 230</div>
+    </div>
+    <div class="kpi-card kpi-bad">
+      <div class="value">4.6s</div>
+      <div class="label">平均 LCP</div>
+      <div class="sub">标准 < 2.5s 🔴</div>
+    </div>
+    <div class="kpi-card kpi-warn">
+      <div class="value">301ms</div>
+      <div class="label">平均 INP</div>
+      <div class="sub">标准 < 200ms 🟠</div>
+    </div>
+    <div class="kpi-card kpi-good">
+      <div class="value">11.8</div>
+      <div class="label">平均 CLS</div>
+      <div class="sub">标准 < 25 🟢</div>
+    </div>
+    <div class="kpi-card kpi-purple">
+      <div class="value">51</div>
+      <div class="label">渠道 (CP)</div>
+      <div class="sub">有数据: 42</div>
+    </div>
+    <div class="kpi-card" style="border-top: 3px solid var(--green);">
+      <div class="value" style="color:var(--green);">3</div>
+      <div class="label">优秀渠道</div>
+      <div class="sub">LCP < 2.5s</div>
+    </div>
+  </div>
+
+  <!-- Alert Section -->
+  <div class="section">
+    <div class="section-title"><span>🚨</span> 紧急关注</div>
+    <div class="alert-grid">
+      <div class="alert-card alert-red">
+        <div class="alert-cp">emolingo</div>
+        <div class="alert-issue">INP 严重超标 · 交互几乎不可用</div>
+        <div class="alert-value" style="color:var(--red);">1470ms</div>
+        <div class="sub" style="font-size:12px;color:var(--text2);margin-top:4px;">标准 < 200ms · 超标 7.4 倍</div>
+        <div class="alert-bar"><div class="alert-bar-fill" style="width:100%;background:var(--red);"></div></div>
+      </div>
+      <div class="alert-card alert-red">
+        <div class="alert-cp">ninesunglobal</div>
+        <div class="alert-issue">CLS 严重超标 · 页面剧烈抖动</div>
+        <div class="alert-value" style="color:var(--red);">42.0</div>
+        <div class="sub" style="font-size:12px;color:var(--text2);margin-top:4px;">标准 < 25 · 超标 1.7 倍</div>
+        <div class="alert-bar"><div class="alert-bar-fill" style="width:100%;background:var(--red);"></div></div>
+      </div>
+      <div class="alert-card alert-red">
+        <div class="alert-cp">dedra / shockit</div>
+        <div class="alert-issue">LCP 极慢 · 页面加载接近 10 秒</div>
+        <div class="alert-value" style="color:var(--red);">9.4s</div>
+        <div class="sub" style="font-size:12px;color:var(--text2);margin-top:4px;">标准 < 2.5s · 超标 3.8 倍</div>
+        <div class="alert-bar"><div class="alert-bar-fill" style="width:100%;background:var(--red);"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row 1 -->
+  <div class="section">
+    <div class="section-title"><span>📊</span> 整体分布</div>
+    <div class="grid-3">
+      <div class="card">
+        <h3>LCP 分布区间</h3>
+        <canvas id="lcpDistChart"></canvas>
+      </div>
+      <div class="card">
+        <h3>CP 分层占比</h3>
+        <canvas id="tierPieChart"></canvas>
+      </div>
+      <div class="card">
+        <h3>平台对比</h3>
+        <canvas id="platformChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- CP Bar Chart -->
+  <div class="section">
+    <div class="section-title"><span>📈</span> 全渠道 LCP 排名</div>
+    <div class="card">
+      <canvas id="cpLcpChart" style="max-height:600px;"></canvas>
+    </div>
+  </div>
+
+  <!-- INP + CLS Charts -->
+  <div class="section">
+    <div class="section-title"><span>⚡</span> INP & CLS 异常渠道</div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>INP Top 10（交互响应）</h3>
+        <canvas id="inpChart"></canvas>
+      </div>
+      <div class="card">
+        <h3>CLS Top 10（布局偏移）</h3>
+        <canvas id="clsChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cross Domain -->
+  <div class="section">
+    <div class="section-title"><span>🔄</span> 同渠道跨域名性能差异</div>
+    <div class="card">
+      <div class="cross-compare" id="crossDomain"></div>
+    </div>
+  </div>
+
+  <!-- LCP vs LH Score -->
+  <div class="section">
+    <div class="section-title"><span>🔬</span> LCP vs Good% LCP 散点图</div>
+    <div class="card">
+      <canvas id="scatterChart" style="max-height:400px;"></canvas>
+    </div>
+  </div>
+
+  <!-- Full Table -->
+  <div class="section">
+    <div class="section-title"><span>📋</span> 全渠道明细表</div>
+    <div class="card" style="padding:16px;">
+      <div class="table-wrap">
+        <table id="detailTable">
+          <thead>
+            <tr>
+              <th style="cursor:pointer" onclick="sortTable(0)">渠道 ▼</th>
+              <th style="cursor:pointer" onclick="sortTable(1)">URL数</th>
+              <th style="cursor:pointer" onclick="sortTable(2)">层级</th>
+              <th style="cursor:pointer" onclick="sortTable(3)">LCP</th>
+              <th style="cursor:pointer" onclick="sortTable(4)">FCP</th>
+              <th style="cursor:pointer" onclick="sortTable(5)">INP</th>
+              <th style="cursor:pointer" onclick="sortTable(6)">CLS</th>
+              <th style="cursor:pointer" onclick="sortTable(7)">Good%LCP</th>
+              <th style="cursor:pointer" onclick="sortTable(8)">LH分</th>
+              <th>问题</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="text-align:center;padding:40px 0;color:var(--text2);font-size:12px;">
+  Generated by 可乐 🦞 · CrUX Web Vitals Analysis · 2026-03-18
+</div>
+
+<script>
+const DATA = {"cpData":[{"cp":"cleverapps","count":5,"hasCrux":4,"lcp":1793,"fcp":1627,"inp":194,"cls":0,"ttfb":728,"goodLcp":86,"goodCls":90,"perf":6025},{"cp":"jiami","count":1,"hasCrux":1,"lcp":1858,"fcp":1764,"inp":295,"cls":19,"ttfb":1015,"goodLcp":84,"goodCls":67,"perf":5400},{"cp":"bravestars","count":5,"hasCrux":4,"lcp":1955,"fcp":1464,"inp":614,"cls":3,"ttfb":472,"goodLcp":82,"goodCls":79,"perf":3600},{"cp":"emolingo","count":5,"hasCrux":4,"lcp":2502,"fcp":2177,"inp":1470,"cls":2,"ttfb":441,"goodLcp":75,"goodCls":86,"perf":2750},{"cp":"coolemon","count":5,"hasCrux":5,"lcp":2612,"fcp":2132,"inp":275,"cls":2.8,"ttfb":729,"goodLcp":74,"goodCls":86,"perf":3280},{"cp":"egga","count":5,"hasCrux":5,"lcp":2726,"fcp":1314,"inp":294,"cls":9,"ttfb":612,"goodLcp":72,"goodCls":75,"perf":5300},{"cp":"minigame","count":5,"hasCrux":4,"lcp":2754,"fcp":1907,"inp":312,"cls":3,"ttfb":568,"goodLcp":73,"goodCls":80,"perf":3325},{"cp":"cdn","count":7,"hasCrux":5,"lcp":2775,"fcp":2210,"inp":129,"cls":0,"ttfb":1662,"goodLcp":66,"goodCls":100,"perf":5260},{"cp":"playgama","count":6,"hasCrux":5,"lcp":2877,"fcp":1691,"inp":388,"cls":3,"ttfb":511,"goodLcp":73,"goodCls":83,"perf":1060},{"cp":"koiking","count":5,"hasCrux":5,"lcp":2993,"fcp":2042,"inp":415,"cls":14,"ttfb":785,"goodLcp":68,"goodCls":73,"perf":4880},{"cp":"batechgame","count":5,"hasCrux":5,"lcp":3097,"fcp":1642,"inp":344,"cls":2,"ttfb":467,"goodLcp":67,"goodCls":84,"perf":1880},{"cp":"lianzhong","count":5,"hasCrux":5,"lcp":3198,"fcp":1911,"inp":261,"cls":14,"ttfb":532,"goodLcp":68,"goodCls":72,"perf":6140},{"cp":"freezenova","count":5,"hasCrux":3,"lcp":3322,"fcp":3157,"inp":161,"cls":17,"ttfb":699,"goodLcp":63,"goodCls":74,"perf":5533},{"cp":"kozhagames","count":10,"hasCrux":10,"lcp":3432,"fcp":4096,"inp":170,"cls":1,"ttfb":840,"goodLcp":64,"goodCls":99,"perf":260},{"cp":"pelicanparty","count":2,"hasCrux":2,"lcp":3516,"fcp":2278,"inp":363,"cls":17,"ttfb":913,"goodLcp":61,"goodCls":72,"perf":4600},{"cp":"aabb","count":5,"hasCrux":5,"lcp":3595,"fcp":2163,"inp":192,"cls":2,"ttfb":711,"goodLcp":56,"goodCls":96,"perf":5000},{"cp":"maile","count":5,"hasCrux":5,"lcp":3618,"fcp":3264,"inp":356,"cls":8.2,"ttfb":640,"goodLcp":64,"goodCls":80,"perf":3820},{"cp":"aged","count":2,"hasCrux":1,"lcp":3639,"fcp":2591,"inp":151,"cls":9,"ttfb":510,"goodLcp":49,"goodCls":76,"perf":0},{"cp":"famobi","count":5,"hasCrux":4,"lcp":3735,"fcp":2615,"inp":354,"cls":3,"ttfb":663,"goodLcp":66,"goodCls":83,"perf":3300},{"cp":"gamotions","count":5,"hasCrux":5,"lcp":3854,"fcp":2446,"inp":285,"cls":33,"ttfb":1065,"goodLcp":58,"goodCls":64,"perf":3420},{"cp":"afantai","count":5,"hasCrux":5,"lcp":3907,"fcp":2063,"inp":275,"cls":4,"ttfb":615,"goodLcp":55,"goodCls":81,"perf":0},{"cp":"frvr","count":5,"hasCrux":5,"lcp":4027,"fcp":2403,"inp":265,"cls":16,"ttfb":790,"goodLcp":55,"goodCls":64,"perf":500},{"cp":"shifen","count":5,"hasCrux":5,"lcp":4335,"fcp":3114,"inp":342,"cls":3,"ttfb":772,"goodLcp":47,"goodCls":83,"perf":1140},{"cp":"leaping","count":5,"hasCrux":5,"lcp":4455,"fcp":3068,"inp":296,"cls":14,"ttfb":607,"goodLcp":57,"goodCls":73,"perf":1480},{"cp":"ninesunglobal","count":5,"hasCrux":5,"lcp":4495,"fcp":4078,"inp":214,"cls":42,"ttfb":812,"goodLcp":51,"goodCls":44,"perf":0},{"cp":"jiamianjia","count":5,"hasCrux":5,"lcp":4720,"fcp":4323,"inp":256,"cls":14,"ttfb":957,"goodLcp":45,"goodCls":73,"perf":0},{"cp":"joyheart","count":5,"hasCrux":5,"lcp":4766,"fcp":4543,"inp":274,"cls":3,"ttfb":596,"goodLcp":62,"goodCls":82,"perf":2580},{"cp":"baby4y","count":5,"hasCrux":4,"lcp":4839,"fcp":3603,"inp":313,"cls":20,"ttfb":960,"goodLcp":54,"goodCls":63,"perf":2275},{"cp":"gamelaputa","count":5,"hasCrux":4,"lcp":4890,"fcp":2177,"inp":241,"cls":2,"ttfb":453,"goodLcp":59,"goodCls":82,"perf":1050},{"cp":"maga","count":5,"hasCrux":5,"lcp":5036,"fcp":2813,"inp":330,"cls":2,"ttfb":579,"goodLcp":59,"goodCls":81,"perf":4100},{"cp":"codethislab","count":5,"hasCrux":5,"lcp":5123,"fcp":2720,"inp":209,"cls":28,"ttfb":784,"goodLcp":40,"goodCls":32,"perf":0},{"cp":"marketjs","count":5,"hasCrux":5,"lcp":5172,"fcp":3115,"inp":338,"cls":20,"ttfb":816,"goodLcp":48,"goodCls":60,"perf":3040},{"cp":"inlogic","count":5,"hasCrux":5,"lcp":5400,"fcp":3506,"inp":372,"cls":19,"ttfb":754,"goodLcp":45,"goodCls":64,"perf":940},{"cp":"littlefly","count":5,"hasCrux":5,"lcp":5435,"fcp":3237,"inp":291,"cls":2,"ttfb":543,"goodLcp":54,"goodCls":84,"perf":2100},{"cp":"doondook","count":5,"hasCrux":5,"lcp":5491,"fcp":4640,"inp":261,"cls":13,"ttfb":731,"goodLcp":47,"goodCls":74,"perf":0},{"cp":"gamesnacks","count":5,"hasCrux":5,"lcp":5495,"fcp":3690,"inp":343,"cls":26,"ttfb":1008,"goodLcp":34,"goodCls":68,"perf":0},{"cp":"boke","count":2,"hasCrux":1,"lcp":5573,"fcp":3128,"inp":277,"cls":20,"ttfb":553,"goodLcp":36,"goodCls":69,"perf":0},{"cp":"shuangyang","count":5,"hasCrux":4,"lcp":5596,"fcp":2483,"inp":272,"cls":2,"ttfb":656,"goodLcp":43,"goodCls":85,"perf":0},{"cp":"aifei","count":5,"hasCrux":5,"lcp":6017,"fcp":3339,"inp":264,"cls":18,"ttfb":549,"goodLcp":52,"goodCls":69,"perf":1240},{"cp":"mobirix","count":5,"hasCrux":4,"lcp":6140,"fcp":2529,"inp":279,"cls":10,"ttfb":592,"goodLcp":49,"goodCls":75,"perf":1875},{"cp":"hago","count":5,"hasCrux":5,"lcp":6219,"fcp":3850,"inp":222,"cls":2.8,"ttfb":606,"goodLcp":41,"goodCls":86,"perf":0},{"cp":"play","count":10,"hasCrux":9,"lcp":6256,"fcp":5777,"inp":271,"cls":3,"ttfb":613,"goodLcp":35,"goodCls":90,"perf":1844},{"cp":"playtouch","count":5,"hasCrux":5,"lcp":6279,"fcp":3698,"inp":238,"cls":34,"ttfb":773,"goodLcp":39,"goodCls":42,"perf":600},{"cp":"beedo","count":5,"hasCrux":5,"lcp":6349,"fcp":2808,"inp":243,"cls":36,"ttfb":789,"goodLcp":40,"goodCls":46,"perf":960},{"cp":"azerion","count":5,"hasCrux":5,"lcp":6428,"fcp":5093,"inp":231,"cls":19,"ttfb":748,"goodLcp":40,"goodCls":69,"perf":720},{"cp":"owngames","count":5,"hasCrux":3,"lcp":6640,"fcp":6324,"inp":240,"cls":28,"ttfb":723,"goodLcp":32,"goodCls":40,"perf":0},{"cp":"chuanyou","count":5,"hasCrux":5,"lcp":6650,"fcp":4255,"inp":233,"cls":2,"ttfb":614,"goodLcp":46,"goodCls":84,"perf":1800},{"cp":"duobite","count":4,"hasCrux":4,"lcp":6678,"fcp":5700,"inp":273,"cls":15,"ttfb":704,"goodLcp":32,"goodCls":73,"perf":2550},{"cp":"gopanda","count":5,"hasCrux":5,"lcp":6734,"fcp":3137,"inp":210,"cls":19,"ttfb":700,"goodLcp":48,"goodCls":54,"perf":0},{"cp":"dedra","count":5,"hasCrux":4,"lcp":9183,"fcp":7091,"inp":420,"cls":23,"ttfb":1157,"goodLcp":31,"goodCls":57,"perf":0},{"cp":"shockit","count":1,"hasCrux":1,"lcp":9682,"fcp":7743,"inp":336,"cls":9,"ttfb":1247,"goodLcp":21,"goodCls":75,"perf":4400}],"crossDomain":[{"cp":"play","domain":"play.ludigames.com","avgLcp":9291,"count":4},{"cp":"play","domain":"play.famobi.com","avgLcp":3828,"count":5},{"cp":"kozhagames","domain":"kozhagames.com","avgLcp":1461,"count":5},{"cp":"kozhagames","domain":"kozhagames.littleyardgames.com","avgLcp":5404,"count":5},{"cp":"playgama","domain":"playgama.littleyardgames.com","avgLcp":3313,"count":4},{"cp":"playgama","domain":"playgama.com","avgLcp":1135,"count":1}],"platformData":{"myfunmax":{"count":121,"avgLcp":4906,"avgInp":276,"avgCls":11},"littleyardgames":{"count":89,"avgLcp":4447,"avgInp":358,"avgCls":15.1}},"overall":{"total":477,"hasCrux":230,"hasLh":244,"avgLcp":4643,"avgInp":301,"avgCls":11.8,"lcpDist":[{"label":"<2.5s","count":15},{"label":"2.5-4s","count":76},{"label":"4-6s","count":84},{"label":"6-8s","count":46},{"label":">8s","count":9}]}};
+
+const COLORS = {good:'#34A853',warn:'#FBBC04',bad:'#EA4335',dead:'#9C27B0',na:'#BDBDBD',blue:'#4285F4'};
+
+function tierColor(lcp) {
+  if(!lcp) return COLORS.na;
+  if(lcp<2500) return COLORS.good;
+  if(lcp<4000) return COLORS.warn;
+  if(lcp<6000) return COLORS.bad;
+  return COLORS.dead;
+}
+function tierLabel(lcp) {
+  if(!lcp) return '无数据';
+  if(lcp<2500) return '🟢 优秀';
+  if(lcp<4000) return '🟠 良好';
+  if(lcp<6000) return '🔴 较差';
+  return '💀 极差';
+}
+function tierClass(lcp) {
+  if(!lcp) return 'tier-na';
+  if(lcp<2500) return 'tier-green';
+  if(lcp<4000) return 'tier-orange';
+  if(lcp<6000) return 'tier-red';
+  return 'tier-dead';
+}
+function pill(val, good, poor) {
+  if(val==null) return '-';
+  const cls = val<=good?'pill-good':val<=poor?'pill-warn':'pill-bad';
+  return `<span class="metric-pill ${cls}">${val}</span>`;
+}
+
+// LCP Distribution Chart
+new Chart(document.getElementById('lcpDistChart'), {
+  type: 'bar',
+  data: {
+    labels: DATA.overall.lcpDist.map(d=>d.label),
+    datasets: [{
+      data: DATA.overall.lcpDist.map(d=>d.count),
+      backgroundColor: [COLORS.good, COLORS.warn, COLORS.bad, COLORS.dead, '#7B1FA2'],
+      borderRadius: 6,
+    }]
+  },
+  options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true,title:{display:true,text:'URL数量'}}} }
+});
+
+// Tier Pie
+const tierCounts = [0,0,0,0];
+DATA.cpData.forEach(d => {
+  if(!d.lcp) return;
+  if(d.lcp<2500) tierCounts[0]++;
+  else if(d.lcp<4000) tierCounts[1]++;
+  else if(d.lcp<6000) tierCounts[2]++;
+  else tierCounts[3]++;
+});
+new Chart(document.getElementById('tierPieChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['🟢 优秀(<2.5s)','🟠 良好(2.5-4s)','🔴 较差(4-6s)','💀 极差(>6s)'],
+    datasets: [{ data: tierCounts, backgroundColor: [COLORS.good, COLORS.warn, COLORS.bad, COLORS.dead], borderWidth: 2, borderColor: '#fff' }]
+  },
+  options: { plugins:{legend:{position:'bottom',labels:{font:{size:11}}}} }
+});
+
+// Platform Chart
+new Chart(document.getElementById('platformChart'), {
+  type: 'bar',
+  data: {
+    labels: ['myfunmax.com','littleyardgames.com'],
+    datasets: [
+      { label: 'LCP (ms)', data: [DATA.platformData.myfunmax.avgLcp, DATA.platformData.littleyardgames.avgLcp], backgroundColor: ['#4285F4','#FF9800'], borderRadius: 6 },
+    ]
+  },
+  options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true,title:{display:true,text:'LCP (ms)'}}} }
+});
+
+// CP LCP Horizontal Bar
+const sortedCpData = [...DATA.cpData].filter(d=>d.lcp).sort((a,b)=>b.lcp-a.lcp);
+new Chart(document.getElementById('cpLcpChart'), {
+  type: 'bar',
+  data: {
+    labels: sortedCpData.map(d=>d.cp),
+    datasets: [{
+      label: 'LCP (ms)',
+      data: sortedCpData.map(d=>d.lcp),
+      backgroundColor: sortedCpData.map(d=>tierColor(d.lcp)),
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:ctx=>`INP: ${sortedCpData[ctx.dataIndex].inp||'-'}ms | CLS: ${sortedCpData[ctx.dataIndex].cls||'-'}`}}},
+    scales:{x:{grid:{display:false},title:{display:true,text:'LCP (ms)'}},y:{grid:{display:false},ticks:{font:{size:11}}}}
+  }
+});
+
+// INP Chart
+const inpSorted = [...DATA.cpData].filter(d=>d.inp).sort((a,b)=>b.inp-a.inp).slice(0,10);
+new Chart(document.getElementById('inpChart'), {
+  type: 'bar',
+  data: {
+    labels: inpSorted.map(d=>d.cp),
+    datasets: [{ label:'INP (ms)', data: inpSorted.map(d=>d.inp),
+      backgroundColor: inpSorted.map(d=>d.inp>500?COLORS.bad:d.inp>200?COLORS.warn:COLORS.good), borderRadius:4 }]
+  },
+  options: { indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{title:{display:true,text:'INP (ms)'}}} }
+});
+
+// CLS Chart
+const clsSorted = [...DATA.cpData].filter(d=>d.cls!=null).sort((a,b)=>b.cls-a.cls).slice(0,10);
+new Chart(document.getElementById('clsChart'), {
+  type: 'bar',
+  data: {
+    labels: clsSorted.map(d=>d.cp),
+    datasets: [{ label:'CLS', data: clsSorted.map(d=>d.cls),
+      backgroundColor: clsSorted.map(d=>d.cls>25?COLORS.bad:d.cls>10?COLORS.warn:COLORS.good), borderRadius:4 }]
+  },
+  options: { indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{title:{display:true,text:'CLS'}}} }
+});
+
+// Cross Domain
+const crossDiv = document.getElementById('crossDomain');
+const crossCps = [...new Set(DATA.crossDomain.map(d=>d.cp))];
+crossCps.forEach(cp => {
+  const items = DATA.crossDomain.filter(d=>d.cp===cp);
+  const maxLcp = Math.max(...items.map(i=>i.avgLcp));
+  let html = `<div class="cross-item"><div class="cp-name">${cp}</div>`;
+  items.forEach(item => {
+    const pct = (item.avgLcp / maxLcp * 100).toFixed(0);
+    const color = tierColor(item.avgLcp);
+    html += `<div class="cross-bar"><div class="domain">${item.domain}</div><div class="bar-track"><div style="width:${pct}%;height:100%;background:${color};border-radius:4px;"></div><div class="bar-value" style="color:${color}">${item.avgLcp}ms</div></div></div>`;
+  });
+  const diff = (maxLcp / Math.min(...items.map(i=>i.avgLcp))).toFixed(1);
+  html += `<div style="font-size:12px;color:var(--text2);margin-top:8px;">⚡ 最大差距 ${diff}x</div></div>`;
+  crossDiv.innerHTML += html;
+});
+
+// Scatter: LCP vs Good%
+const scatterData = DATA.cpData.filter(d=>d.lcp && d.goodLcp);
+new Chart(document.getElementById('scatterChart'), {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      label: 'CP',
+      data: scatterData.map(d=>({x:d.lcp, y:d.goodLcp, cp:d.cp})),
+      backgroundColor: scatterData.map(d=>tierColor(d.lcp)),
+      pointRadius: 8,
+      pointHoverRadius: 12,
+    }]
+  },
+  options: {
+    plugins:{tooltip:{callbacks:{label:ctx=>`${scatterData[ctx.dataIndex].cp}: LCP ${ctx.raw.x}ms, Good% ${ctx.raw.y}%`}},legend:{display:false}},
+    scales:{x:{title:{display:true,text:'LCP (ms)'}},y:{title:{display:true,text:'Good% LCP (%)'},min:0,max:100}}
+  }
+});
+
+// Table
+const tbody = document.querySelector('#detailTable tbody');
+[...DATA.cpData].filter(d=>d.lcp).sort((a,b)=>a.lcp-b.lcp).forEach(d => {
+  const issues = [];
+  if(d.lcp>4000) issues.push('LCP');
+  if(d.inp>200) issues.push('INP');
+  if(d.cls>10) issues.push('CLS');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><strong>${d.cp}</strong></td>
+    <td>${d.count}</td>
+    <td><span class="badge-tier ${tierClass(d.lcp)}">${tierLabel(d.lcp)}</span></td>
+    <td><strong style="color:${tierColor(d.lcp)}">${d.lcp}ms</strong></td>
+    <td>${d.fcp?d.fcp+'ms':'-'}</td>
+    <td>${pill(d.inp+'ms', 200, 500)}</td>
+    <td>${pill(d.cls, 10, 25)}</td>
+    <td>${d.goodLcp!=null?`<div style="display:flex;align-items:center;gap:4px;"><div style="width:60px;height:8px;background:#F0F0F0;border-radius:4px;overflow:hidden;"><div style="width:${d.goodLcp}%;height:100%;background:${d.goodLcp>=70?COLORS.good:d.goodLcp>=50?COLORS.warn:COLORS.bad};border-radius:4px;"></div></div>${d.goodLcp}%</div>`:'-'}</td>
+    <td>${d.perf!=null?Math.round(d.perf/100):'-'}</td>
+    <td style="font-size:12px;color:var(--red)">${issues.join(', ')||'✅'}</td>
+  `;
+  tbody.appendChild(tr);
+});
+
+// Sort table
+let sortDir = 1;
+function sortTable(col) {
+  const rows = [...tbody.querySelectorAll('tr')];
+  rows.sort((a,b) => {
+    let av = a.cells[col].textContent.trim().replace(/[^0-9.-]/g,'');
+    let bv = b.cells[col].textContent.trim().replace(/[^0-9.-]/g,'');
+    return (parseFloat(av)||0 - parseFloat(bv)||0) * sortDir;
+  });
+  sortDir *= -1;
+  rows.forEach(r => tbody.appendChild(r));
+}
+</script>
+</body>
+</html>
